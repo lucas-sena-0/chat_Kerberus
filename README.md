@@ -22,7 +22,7 @@ Use um dos usuarios padrão configurados no servidor:
 - `carol` / `carol123`
 
 ```bash
-python -m client.client --host 127.0.0.1 --port 5000 --username alice --password alice123
+python -m client.client --host 127.0.0.1 --port 5000 -u alice -p alice123
 ```
 
 ## Comandos do chat

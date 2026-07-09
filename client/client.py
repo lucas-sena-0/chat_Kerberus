@@ -28,6 +28,7 @@ class ChatClient:
         assert self.writer is not None and self.reader is not None
         send_packet(self.writer, create_packet("auth", username=username, password=password))
         packet = receive_packet(self.reader)
+        auth = auth_ask(self.reader)
         if packet is None:
             return False, "conexao encerrada durante autenticacao"
         if packet.type == "auth_ok":

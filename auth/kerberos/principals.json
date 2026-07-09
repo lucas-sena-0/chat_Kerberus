@@ -1,0 +1,14 @@
+{
+  "users": {
+    "lucas": {
+      "password": "123456"
+    },
+    "joao": {
+      "password": "abc123"
+    }
+  },
+  "services": {
+    "tgs": {},
+    "chat": {}
+  }
+}
