@@ -61,3 +61,56 @@ class ASReply:
             lifetime=int(data["lifetime"]),
             ticket_tgs=str(data["ticket_tgs"]),
         )
+
+
+@dataclass(slots=True)
+class TicketV:
+    client_id: str
+    client_address: str
+    service_id: str
+    session_key: str
+    timestamp: int
+    lifetime: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "client_id": self.client_id,
+            "client_address": self.client_address,
+            "service_id": self.service_id,
+            "session_key": self.session_key,
+            "timestamp": self.timestamp,
+            "lifetime": self.lifetime,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            client_id=str(data["client_id"]),
+            client_address=str(data["client_address"]),
+            service_id=str(data["service_id"]),
+            session_key=str(data["session_key"]),
+            timestamp=int(data["timestamp"]),
+            lifetime=int(data["lifetime"]),
+        )
+
+
+@dataclass(slots=True)
+class Authenticator:
+    client_id: str
+    client_address: str
+    timestamp: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "client_id": self.client_id,
+            "client_address": self.client_address,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            client_id=str(data["client_id"]),
+            client_address=str(data["client_address"]),
+            timestamp=int(data["timestamp"]),
+        )

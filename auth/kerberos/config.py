@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-REALM = "unb.br"
+REALM = "sec.comp"
 AS_PORT = 9000
 TGS_ID = "tgs"
 CHAT_SERVICE = "chat"

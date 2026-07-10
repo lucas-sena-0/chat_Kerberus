@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import time
@@ -8,9 +9,17 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .config import PBKDF2_ITERATIONS, REALM
+
 
 def generate_key() -> bytes:
     return os.urandom(32)
+
+
+def derive_shared_key(label: str) -> bytes:
+    seed = f"{REALM}:{label}".encode("utf-8")
+    salt = f"{REALM}:shared".encode("utf-8")
+    return hashlib.pbkdf2_hmac("sha256", seed, salt, PBKDF2_ITERATIONS, dklen=32)
 
 
 def encrypt(key: bytes, data: dict[str, Any]) -> str:
