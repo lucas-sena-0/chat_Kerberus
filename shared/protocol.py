@@ -36,3 +36,11 @@ def receive_packet(reader: Any) -> Packet | None:
         return Packet.from_json(raw)
     except (json.JSONDecodeError, KeyError, TypeError):
         return None
+
+
+def make_ok_response(packet_type: str, payload: str) -> str:
+    return json.dumps({"ok": True, "type": packet_type, "payload": payload}, ensure_ascii=False)
+
+
+def make_error_response(error: str, message: str) -> str:
+    return json.dumps({"ok": False, "type": "error", "error": error, "message": message}, ensure_ascii=False)

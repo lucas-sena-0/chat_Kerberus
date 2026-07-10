@@ -1,0 +1,18 @@
+{
+  "users": {
+    "lucas": {
+      "password": "senha123"
+    },
+    "alice": {
+      "password": "alice123"
+    }
+  },
+  "services": {
+    "tgs": {
+      "key": ""
+    },
+    "chat": {
+      "key": ""
+    }
+  }
+}

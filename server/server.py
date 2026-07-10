@@ -8,12 +8,9 @@ from typing import Iterable, TextIO
 
 from shared.protocol import Packet, create_packet, receive_packet, send_packet
 
+from auth.kerberos.service_auth import ServiceAuthenticator
+from auth.kerberos.session_context import KerberosSession
 
-DEFAULT_CREDENTIALS: dict[str, str] = {
-    "alice": "alice123",
-    "bob": "bob123",
-    "carol": "carol123",
-}
 
 
 @dataclass(slots=True, eq=False)
@@ -24,6 +21,7 @@ class ClientSession:
     reader: TextIO = field(init=False, repr=False)
     writer: TextIO = field(init=False, repr=False)
     username: str | None = None
+    kerberos_session: KerberosSession | None = None
     _send_lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
 
@@ -51,28 +49,30 @@ class ClientSession:
     def run(self) -> None:
         try:
             auth_packet = receive_packet(self.reader)
-            if auth_packet is None or auth_packet.type != "auth":
+            if auth_packet is None or auth_packet.type != "kerberos_auth":
                 return
 
-            username = str(auth_packet.data.get("username", "")).strip()
-            password = str(auth_packet.data.get("password", ""))
-
-            if not username or not password:
-                self.send(create_packet("auth_error", message="username e password sao obrigatorios"))
+            ticket = str(auth_packet.data.get("ticket", ""))
+            authenticator = str(auth_packet.data.get("authenticator", ""))
+            if not ticket or not authenticator:
+                self.send(create_packet("kerberos_error", message="Authenticator inválido."))
                 return
 
-            if self.server.is_username_taken(username):
-                self.send(create_packet("auth_error", message="usuario ja esta em uso"))
+            try:
+                kerberos_session, mutual_auth_payload = self.server.service_authenticator.authenticate(
+                    ticket_token=ticket,
+                    authenticator_token=authenticator,
+                    client_address=self.address[0],
+                )
+            except ValueError as exc:
+                self.send(create_packet("kerberos_error", message=str(exc)))
                 return
 
-            if not self.server.authenticate(username, password):
-                self.send(create_packet("auth_error", message="credenciais invalidas"))
-                return
-
-            self.username = username
-            self.server.register_user(username)
-            self.send(create_packet("auth_ok", username=username, message="autenticado com sucesso"))
-            self.server.broadcast_system(f"{username} entrou no chat.", exclude=self)
+            self.kerberos_session = kerberos_session
+            self.username = kerberos_session.client_id
+            self.server.register_user(self.username)
+            self.send(create_packet("kerberos_mutual", payload=mutual_auth_payload))
+            self.server.broadcast_system(f"{self.username} entrou no chat.", exclude=self)
             self._chat_loop()
         finally:
             if self.username is not None:
@@ -87,13 +87,13 @@ class ClientSession:
             if packet is None:
                 return
 
-            if packet.type == "chat":
+            if packet.type == "msg":
                 message = str(packet.data.get("message", "")).strip()
                 if message:
                     self.server.broadcast_chat(self.username, message)
                 continue
 
-            if packet.type == "users":
+            if packet.type == "list":
                 self.send(create_packet("users", users=self.server.list_users()))
                 continue
 
@@ -105,11 +105,11 @@ class ClientSession:
 class ChatServer:
     host: str = "127.0.0.1"
     port: int = 5000
-    credentials: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_CREDENTIALS))
     _active_users: set[str] = field(default_factory=set, init=False, repr=False)
     _sessions: set[ClientSession] = field(default_factory=set, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _running: bool = field(default=False, init=False, repr=False)
+    service_authenticator: ServiceAuthenticator = field(default_factory=ServiceAuthenticator)
 
     def start(self) -> None:
         self._running = True
@@ -145,9 +145,6 @@ class ChatServer:
             with self._lock:
                 self._sessions.discard(session)
 
-    def authenticate(self, username: str, password: str) -> bool:
-        return self.credentials.get(username) == password
-
     def register_user(self, username: str) -> None:
         with self._lock:
             self._active_users.add(username)
@@ -179,7 +176,7 @@ class ChatServer:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Servidor de chat simples preparado para Kerberos.")
+    parser = argparse.ArgumentParser(description="Servidor de chat integrado ao Kerberos.")
     parser.add_argument("--host", default="127.0.0.1", help="Endereco para bind do servidor")
     parser.add_argument("--port", default=5000, type=int, help="Porta TCP do servidor")
     return parser

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from socket import AF_INET, SOCK_STREAM, SO_REUSEADDR, SOL_SOCKET, socket
 from typing import Any, Iterable
 
+from shared.logger import log
+
 from .authenticator import AuthenticatorFactory
 from .config import AS_PORT, DEFAULT_LIFETIME, CHAT_SERVICE, TGS_ID
 from .crypto import current_timestamp, decrypt, derive_shared_key, encrypt, generate_key, is_expired
@@ -56,6 +58,7 @@ class TGSServer:
             raise ValueError("Authenticator invalido")
 
         ticket = TicketTGS.from_dict(decrypt(self._tgs_key(), ticket_token))
+        log("TGS", "TicketTGS descriptografado", {"client_id": ticket.client_id, "timestamp": ticket.timestamp})
         if is_expired(ticket.timestamp, ticket.lifetime):
             raise ValueError("Ticket expirado")
 
@@ -68,9 +71,11 @@ class TGSServer:
             raise ValueError("Endereco diferente")
         if not self.authenticator_factory.validate(ticket, authenticator):
             raise ValueError("Authenticator invalido")
+        log("TGS", "Authenticator validado", {"client_id": authenticator.client_id})
 
         kc_v = generate_key()
         kc_v_text = base64.b64encode(kc_v).decode("utf-8")
+        log("TGS", "Kc_v gerada", {"client_id": ticket.client_id, "kc_v": kc_v})
         ticket_v = TicketV(
             client_id=ticket.client_id,
             client_address=ticket.client_address,
@@ -81,6 +86,7 @@ class TGSServer:
         )
         ticket_v_token = encrypt(self._service_key(service_id), ticket_v.to_dict())
         self.ticket_cache.store(ticket_v)
+        log("TGS", "TicketV emitido", {"client_id": ticket.client_id, "service_id": service_id})
 
         reply_payload = {
             "session_key": kc_v_text,
@@ -89,14 +95,14 @@ class TGSServer:
             "lifetime": DEFAULT_LIFETIME,
             "ticket_v": ticket_v_token,
         }
-        return {"type": "tgs_reply", "payload": encrypt(kc_tgs, reply_payload)}
+        return {"ok": True, "type": "tgs_reply", "payload": encrypt(kc_tgs, reply_payload)}
 
     def handle_json(self, raw: str, client_address: str) -> str:
-        request = _json_loads(raw)
         try:
+            request = _json_loads(raw)
             response = self.process_request(request, client_address)
         except ValueError as exc:
-            response = {"type": "tgs_error", "message": str(exc)}
+            response = {"ok": False, "type": "error", "error": "request_error", "message": str(exc)}
         return _json_dumps(response)
 
     def start(self) -> None:

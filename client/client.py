@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 from socket import AF_INET, SOCK_STREAM, socket
 from threading import Event, Thread
-from typing import Iterable
+from typing import Any, Iterable
 
 from shared.protocol import Packet, create_packet, receive_packet, send_packet
+
+from auth.kerberos.authenticator import AuthenticatorFactory
+from auth.kerberos.crypto import current_timestamp, decrypt
+
+
+def _json_loads(raw: str) -> dict[str, Any]:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("Mensagem invalida")
+    return payload
+
+
+def _json_dumps(data: dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 class ChatClient:
@@ -17,6 +33,15 @@ class ChatClient:
         self.writer = None
         self._running = False
         self._receiver_ready = Event()
+        self.authenticator_factory = AuthenticatorFactory()
+        self.username: str | None = None
+        self.ticket_v: str | None = None
+        self.kc_v: bytes | None = None
+
+    def configure_kerberos(self, username: str, ticket_v: str, kc_v_b64: str) -> None:
+        self.username = username
+        self.ticket_v = ticket_v
+        self.kc_v = base64.b64decode(kc_v_b64.encode("utf-8"))
 
     def connect(self) -> None:
         self.connection = socket(AF_INET, SOCK_STREAM)
@@ -24,20 +49,42 @@ class ChatClient:
         self.reader = self.connection.makefile("r", encoding="utf-8", newline="\n")
         self.writer = self.connection.makefile("w", encoding="utf-8", newline="\n")
 
-    def login(self, username: str, password: str) -> tuple[bool, str]:
-        assert self.writer is not None and self.reader is not None
-        send_packet(self.writer, create_packet("auth", username=username, password=password))
+    def kerberos_authenticate(self) -> tuple[bool, str]:
+        assert self.writer is not None and self.reader is not None and self.username is not None
+        assert self.ticket_v is not None and self.kc_v is not None
+        authenticator = self.authenticator_factory.create(
+            client_id=self.username,
+            client_address=self.host,
+            timestamp=current_timestamp(),
+        )
+        authenticator_token = self.authenticator_factory.encrypt(self.kc_v, authenticator)
+        send_packet(
+            self.writer,
+            create_packet("kerberos_auth", ticket=self.ticket_v, authenticator=authenticator_token),
+        )
         packet = receive_packet(self.reader)
-        auth = auth_ask(self.reader)
         if packet is None:
-            return False, "conexao encerrada durante autenticacao"
-        if packet.type == "auth_ok":
-            return True, str(packet.data.get("message", "autenticado"))
-        return False, str(packet.data.get("message", "falha na autenticacao"))
+            return False, "conexao encerrada durante autenticacao kerberos"
+        if packet.type == "kerberos_error":
+            return False, str(packet.data.get("message", "falha na autenticacao kerberos"))
+        if packet.type != "kerberos_mutual":
+            return False, "resposta kerberos invalida"
 
-    def start(self, username: str, password: str) -> None:
+        payload = str(packet.data.get("payload", ""))
+        if not payload:
+            return False, "resposta kerberos invalida"
+
+        mutual = decrypt(self.kc_v, payload)
+        received_timestamp = int(mutual["timestamp"])
+        sent_timestamp = authenticator.timestamp
+        if received_timestamp != sent_timestamp + 1:
+            return False, "falha na autenticacao mutua"
+
+        return True, "autenticado com Kerberos"
+
+    def start(self) -> None:
         self.connect()
-        authenticated, message = self.login(username, password)
+        authenticated, message = self.kerberos_authenticate()
         if not authenticated:
             print(f"[auth] {message}")
             self.close()
@@ -45,7 +92,7 @@ class ChatClient:
 
         self._running = True
         print(f"[auth] {message}")
-        print("Digite mensagens e use /users para listar usuarios ou /quit para sair.")
+        print("Digite /list para listar usuarios ou /quit para sair. Qualquer outro texto sera enviado como mensagem.")
         receiver = Thread(target=self._receive_loop, daemon=True)
         receiver.start()
         self._receiver_ready.set()
@@ -107,11 +154,11 @@ class ChatClient:
                 self._running = False
                 break
 
-            if line == "/users":
-                send_packet(self.writer, create_packet("users"))
+            if line == "/list":
+                send_packet(self.writer, create_packet("list"))
                 continue
 
-            send_packet(self.writer, create_packet("chat", message=line))
+            send_packet(self.writer, create_packet("msg", message=line))
 
         self.close()
 
@@ -138,20 +185,20 @@ class ChatClient:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Cliente de chat modular preparado para Kerberos.")
+    parser = argparse.ArgumentParser(description="Cliente de chat integrado ao Kerberos.")
     parser.add_argument("--host", default="127.0.0.1", help="Endereco do servidor")
     parser.add_argument("--port", default=5000, type=int, help="Porta TCP do servidor")
-    parser.add_argument("-u", "--username", help="Nome de usuario")
-    parser.add_argument("-p", "--password", help="Senha do usuario")
+    parser.add_argument("-u", "--username", required=True, help="Nome de usuario")
+    parser.add_argument("--ticket-v", required=True, help="TicketV em Base64")
+    parser.add_argument("--kc-v", required=True, help="Kc_v em Base64")
     return parser
 
 
 def main(argv: Iterable[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    username = args.username or input("Usuario: ").strip()
-    password = args.password or input("Senha: ").strip()
     client = ChatClient(host=args.host, port=args.port)
-    client.start(username=username, password=password)
+    client.configure_kerberos(args.username, args.ticket_v, args.kc_v)
+    client.start()
 
 
 if __name__ == "__main__":

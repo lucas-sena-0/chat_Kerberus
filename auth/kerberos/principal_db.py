@@ -11,7 +11,7 @@ class PrincipalDatabase:
 
     @classmethod
     def default(cls) -> PrincipalDatabase:
-        return cls(path=Path(__file__).with_name("principals.json"))
+        return cls(path=Path(__file__).resolve().parents[2] / "principals.json")
 
     def _load(self) -> dict:
         with self.path.open("r", encoding="utf-8") as handle:
