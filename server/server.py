@@ -90,7 +90,7 @@ class ClientSession:
             if packet.type == "msg":
                 message = str(packet.data.get("message", "")).strip()
                 if message:
-                    self.server.broadcast_chat(self.username, message)
+                    self.server.broadcast_chat(self.username, message, exclude=self)
                 continue
 
             if packet.type == "list":
@@ -161,8 +161,8 @@ class ChatServer:
         with self._lock:
             return sorted(self._active_users)
 
-    def broadcast_chat(self, username: str, message: str) -> None:
-        self.broadcast(create_packet("chat", sender=username, message=message))
+    def broadcast_chat(self, username: str, message: str, exclude: ClientSession | None = None) -> None:
+        self.broadcast(create_packet("chat", sender=username, message=message), exclude=exclude)
 
     def broadcast_system(self, message: str, exclude: ClientSession | None = None) -> None:
         self.broadcast(create_packet("system", message=message), exclude=exclude)

@@ -46,12 +46,14 @@ class KerberosClient:
     def __post_init__(self) -> None:
         self.kc = derive_user_key(self.username, self.password)
         self._demo("[2] Derivando Kc a partir da senha")
+        log("CLIENT", "Kc derivada", {"client_id": self.username, "kc": self.kc})
 
     def load_as_reply(self, payload: str) -> ASReply:
         reply = ASReply.from_dict(decrypt(self.kc, payload))
         self.kc_tgs = base64.b64decode(reply.session_key.encode("utf-8"))
         self.ticket_tgs = reply.ticket_tgs
         self._demo("[3] Descriptografando resposta do AS")
+        log("CLIENT", "Kc_tgs recebida", {"client_id": self.username, "kc_tgs": self.kc_tgs})
         return reply
 
     def request_as(self, host: str = AS_HOST, port: int = AS_PORT) -> ASReply:
@@ -100,6 +102,7 @@ class KerberosClient:
         reply = decrypt(self.kc_tgs, payload)
         self.kc_v = base64.b64decode(str(reply["session_key"]).encode("utf-8"))
         self.ticket_v = str(reply["ticket_v"])
+        log("CLIENT", "Kc_v recebida", {"client_id": self.username, "kc_v": self.kc_v})
         return reply
 
     def request_tgs(self, host: str, port: int, service_id: str = CHAT_SERVICE) -> dict[str, Any]:

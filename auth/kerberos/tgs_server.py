@@ -40,7 +40,7 @@ class TGSServer:
         return derive_shared_key(TGS_ID)
 
     def _service_key(self, service_id: str) -> bytes:
-        return derive_shared_key(f"service:{service_id}")
+        return derive_shared_key(service_id)
 
     def _decode_session_key(self, key_text: str) -> bytes:
         return base64.b64decode(key_text.encode("utf-8"))
